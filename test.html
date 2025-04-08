@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
@@ -40,75 +41,88 @@
     <script>
       const jsPsych = initJsPsych({
         on_finish: () => {
+          // --- Local Save Functionality ---
+          // Try to get the subject ID entered by the participant
+          const subjectData = jsPsych.data
+            .get()
+            .filter({ trial_type: "survey-text" })
+            .values();
+          let subjectId = "UNKNOWN_SUBJECT"; // Default if not found
+          // Check if response exists and has the subject property
+          if (
+            subjectData.length > 0 &&
+            subjectData[0].response &&
+            typeof subjectData[0].response.subject !== "undefined"
+          ) {
+            // Sanitize the subject ID to be safe for filenames (remove spaces, special chars)
+            subjectId = String(subjectData[0].response.subject).replace(
+              /[^a-zA-Z0-9_-]/g,
+              "_"
+            );
+          } else {
+            // Fallback if the subject trial data isn't as expected (e.g., participant skipped)
+            // Or if added via jsPsych.data.addProperties in a different way
+            const firstTrialSubject = jsPsych.data.get().values()[0]?.subject;
+            if (firstTrialSubject) {
+              subjectId = String(firstTrialSubject).replace(
+                /[^a-zA-Z0-9_-]/g,
+                "_"
+              );
+            }
+          }
+          // Handle case where subject ID might be empty after sanitizing
+          if (!subjectId) {
+            subjectId = "SUBJECT_ID_EMPTY";
+          }
+
+          const timestamp = new Date().toISOString().replace(/[:.]/g, "-"); // e.g., 2025-04-08T10-30-27-123Z
+          const filename = `results_${subjectId}_${timestamp}.csv`; // Generate unique filename
+
           const csv = jsPsych.data.get().csv();
-          const blob = new Blob([csv], { type: "text/csv" });
+          // Specify UTF-8 encoding for the CSV Blob, important for non-English characters
+          const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
+          a.style.display = "none"; // Hide the link element
           a.href = url;
-          a.download = "jspsych_results.csv";
-          a.click();
+          a.download = filename; // Use the dynamic filename
+
+          document.body.appendChild(a); // Append the link to the body (needed for Firefox)
+          a.click(); // Simulate a click to trigger the download prompt
+          document.body.removeChild(a); // Remove the link from the body
+          URL.revokeObjectURL(url); // Release the object URL resource
+          // --- End of Local Save ---
         },
       });
 
-      const GITHUB_TOKEN = "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"; // ここにあなたのPATを入れる（注意：セキュリティに注意！）
-      const REPO_OWNER = "kei-account";
-      const REPO_NAME = "experiment";
-      const FILE_PATH = "data/jspsych_results.csv"; // アップロード先のパス
-
-      function uploadToGitHub(csvData) {
-        const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FILE_PATH}`;
-
-        // base64にエンコード
-        const encodedContent = btoa(unescape(encodeURIComponent(csvData)));
-
-        // アップロード内容
-        const payload = {
-          message: "Add jsPsych result",
-          content: encodedContent,
-        };
-
-        fetch(url, {
-          method: "PUT",
-          headers: {
-            Authorization: `token ${GITHUB_TOKEN}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        })
-          .then((response) => response.json())
-          .then((data) => {
-            console.log("✅ アップロード完了:", data);
-            alert("結果がGitHubにアップロードされました！");
-          })
-          .catch((error) => {
-            console.error("❌ アップロード失敗:", error);
-            alert("アップロード中にエラーが発生しました。");
-          });
-      }
-
-      jsPsych.on_finish = () => {
-        const csv = jsPsych.data.get().csv();
-        uploadToGitHub(csv); // GitHubへアップロード！
-      };
+      // --- GitHub Upload Code REMOVED ---
+      // const GITHUB_TOKEN = ... (REMOVED)
+      // const REPO_OWNER = ... (REMOVED)
+      // const REPO_NAME = ... (REMOVED)
+      // const FILE_PATH = ... (REMOVED)
+      // function uploadToGitHub(csvData) { ... } (REMOVED)
+      // jsPsych.on_finish = () => { uploadToGitHub(...) }; (REMOVED - functionality is now inside initJsPsych)
 
       const subject_id = {
         type: jsPsychSurveyText,
         questions: [
           {
-            prompt: "被験者の名前を入力してください：",
-            name: "subject",
+            prompt: "被験者の名前を入力してください：", // "Please enter participant's name:"
+            name: "subject", // This key 'subject' is used above to get the value
             required: true,
           },
         ],
         on_finish: (data) => {
-          if (data.responses) {
-            const responses = JSON.parse(data.responses);
-            jsPsych.data.addProperties({ subject: responses.subject });
+          // Parse the response (it's a JSON string) and add it as a property
+          // This ensures 'subject' is available in the main data store later
+          if (data.response) {
+            // jsPsych 7+ uses 'response' directly
+            jsPsych.data.addProperties({ subject: data.response.subject });
           }
         },
       };
 
-      // タイムスタンプ記録用変数
+      // タイムスタンプ記録用変数 (Timestamp recording variables)
       let timestamps = {};
       function log_event(label) {
         timestamps[label] = Math.round(performance.now());
@@ -116,14 +130,14 @@
 
       function createTrial(trial) {
         const timeline = [];
-        timestamps = {}; // リセット
+        timestamps = {}; // リセット (Reset)
 
         timeline.push({
           type: jsPsychCallFunction,
           func: () => log_event("trial_start"),
         });
 
-        // Fixation（中央に十字）
+        // Fixation（中央に十字）(Fixation cross in center)
         timeline.push({
           type: jsPsychHtmlKeyboardResponse,
           stimulus: '<div class="centered" style="font-size:48px;">+</div>',
@@ -131,7 +145,7 @@
           trial_duration: 1000,
         });
 
-        // 数字提示
+        // 数字提示 (Number presentation)
         trial.numbers.forEach((num, index) => {
           timeline.push({
             type: jsPsychCallFunction,
@@ -163,22 +177,25 @@
           stimulus: target_html,
           trial_duration: 2000,
           response_ends_trial: true,
-          choices: [" "], // スペースキーのみ
+          choices: [" "], // スペースキーのみ (Space bar only)
           on_finish: (data) => {
             const responded = data.response !== null;
             const correct =
               (trial.target === "maru" && responded) ||
               (trial.target === "hoshi" && !responded);
 
+            // Add trial-specific info to data
             data.numbers = trial.numbers.join("-");
             data.position = trial.position;
             data.target = trial.target;
             data.correct = correct;
             data.responded = responded;
 
+            // Add all recorded timestamps for this trial
             for (const key in timestamps) {
               data[key + "_time"] = timestamps[key];
             }
+            // Calculate absolute response time if response occurred
             if (data.rt !== null) {
               data.response_time = Math.round(
                 timestamps["target_onset"] + data.rt
@@ -192,7 +209,7 @@
         return timeline;
       }
 
-      // 練習トライアル（4件固定）
+      // 練習トライアル（4件固定）(Practice trials - 4 fixed)
       const practice_trials = [
         { numbers: ["7", "5", "3"], position: "left", target: "hoshi" },
         { numbers: ["7", "5", "3"], position: "right", target: "maru" },
@@ -202,14 +219,22 @@
       const practice_timeline = practice_trials.flatMap(createTrial);
 
       // === 条件バランス試行（増加10件 + 減少10件）===
+      // (Condition-balanced trials - 10 increasing + 10 decreasing)
       function isIncreasing(array) {
-        return array.every((val, i, arr) => i === 0 || arr[i - 1] < val);
+        // Ensure numbers are compared numerically
+        return array.every(
+          (val, i, arr) => i === 0 || Number(arr[i - 1]) < Number(val)
+        );
       }
       function isDecreasing(array) {
-        return array.every((val, i, arr) => i === 0 || arr[i - 1] > val);
+        // Ensure numbers are compared numerically
+        return array.every(
+          (val, i, arr) => i === 0 || Number(arr[i - 1]) > Number(val)
+        );
       }
 
       const candidate_trials = [
+        // (Same candidate trials as before...)
         // 左側に◯、右側に☆（増加）
         { numbers: ["5", "13", "21"], position: "left", target: "hoshi" },
         { numbers: ["5", "13", "21"], position: "right", target: "hoshi" },
@@ -262,51 +287,63 @@
         { numbers: ["25", "17", "9"], position: "left", target: "maru" },
       ];
 
-      const increasing_trials = candidate_trials.filter((t) =>
-        isIncreasing(t.numbers.map(Number))
+      // Filter trials based on increasing/decreasing condition
+      const increasing_trials = candidate_trials.filter(
+        (t) => isIncreasing(t.numbers) // Pass numbers directly
       );
-      const decreasing_trials = candidate_trials.filter((t) =>
-        isDecreasing(t.numbers.map(Number))
+      const decreasing_trials = candidate_trials.filter(
+        (t) => isDecreasing(t.numbers) // Pass numbers directly
       );
 
+      // Shuffle the combined main trials
       const main_trials = jsPsych.randomization.shuffle(
         increasing_trials.concat(decreasing_trials)
       );
+      // Create the timeline nodes for main trials
       const main_timeline = main_trials.flatMap(createTrial);
 
-      // 実験の全体タイムライン
+      // 実験の全体タイムライン (Overall experiment timeline)
       jsPsych.run([
-        subject_id,
+        subject_id, // Ask for subject ID first
         {
+          // Practice instructions
           type: jsPsychHtmlKeyboardResponse,
           stimulus: `
-    <div class="centered" style="font-size: 24px;">
-      練習パートを始めます。<br><br>
-      <strong>◯ のときはスペースキーを押し、☆ のときは押さないでください。</strong><br><br>
-      スペースキーを押してスタート
-    </div>
-  `,
+            <div class="centered" style="font-size: 24px; line-height: 1.6;">
+              練習パートを始めます。<br><br>
+              画面に <strong>◯</strong> が表示されたら <strong>スペースキー</strong> を押してください。<br>
+              画面に <strong>☆</strong> が表示されたら、キーは押さないでください。<br><br>
+              準備ができたらスペースキーを押してスタートしてください。
+            </div>`,
           choices: [" "],
         },
-
-        ...practice_timeline,
+        ...practice_timeline, // Run practice trials
         {
+          // Main experiment instructions
           type: jsPsychHtmlKeyboardResponse,
           stimulus: `
-    <div class="centered" style="font-size: 24px;">
-      本実験を始めます。<br><br>
-      <strong>◯ のときはスペースキーを押し、☆ のときは押さないでください。</strong><br><br>
-      スペースキーを押してスタート
-    </div>
-  `,
+            <div class="centered" style="font-size: 24px; line-height: 1.6;">
+              本実験を始めます。<br><br>
+              練習と同じように、<strong>◯</strong> が表示されたら <strong>スペースキー</strong> を押してください。<br>
+              <strong>☆</strong> が表示されたら、キーは押さないでください。<br><br>
+              準備ができたらスペースキーを押してスタートしてください。
+            </div>`,
           choices: [" "],
         },
-        ...main_timeline,
+        ...main_timeline, // Run main trials
         {
+          // Final message
           type: jsPsychHtmlButtonResponse,
-          stimulus: "お疲れさまでした！結果を自動保存しました。",
-          choices: ["終了"],
+          stimulus: `
+            <div class="centered" style="font-size: 24px; line-height: 1.6;">
+              お疲れさまでした！<br><br>
+              これで実験は終了です。<br>
+              結果ファイル（CSV）が自動的にダウンロードされます。<br><br>
+              下のボタンを押して終了してください。
+            </div>`,
+          choices: ["終了 (Exit)"], // Single button to end
         },
+        // The on_finish function in initJsPsych handles the download after this timeline completes.
       ]);
     </script>
   </body>
