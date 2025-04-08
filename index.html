@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>数字刺激課題</title>
+    <script
+      src="https://unpkg.com/jspsych@7.3.4"
+      type="text/javascript"
+    ></script>
+    <script
+      src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3"
+      type="text/javascript"
+    ></script>
+    <script
+      src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.3"
+      type="text/javascript"
+    ></script>
+    <script
+      src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"
+      type="text/javascript"
+    ></script>
+    <script
+      src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3"
+      type="text/javascript"
+    ></script>
+    <style>
+      body {
+        font-family: sans-serif;
+        text-align: center;
+        padding: 50px;
+      }
+      .centered {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      // Initialize jsPsych - on_finish callback handles automatic download
+      const jsPsych = initJsPsych({
+        on_finish: () => {
+          console.log("Experiment finished. Triggering download...");
+          const results = jsPsych.data.get();
+          // Get subject ID from data, provide default if not found/entered
+          const subjectId =
+            results.select("subject").values[0] || "unknown_subject";
+          // Sanitize subject ID slightly for filename (replace spaces, etc.)
+          const safeSubjectId = subjectId.replace(/[^a-zA-Z0-9_-]/g, "_");
+          const filename = `jspsych_results_${safeSubjectId}.csv`; // Construct filename
+
+          const csv = results.csv(); // Get data as CSV string
+          const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" }); // Create blob
+          const url = URL.createObjectURL(blob); // Create temporary URL for blob
+
+          // Create a hidden download link
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename; // Set the desired filename
+
+          // Programmatically click the hidden link to trigger download
+          document.body.appendChild(a); // Append link to body (needed for Firefox)
+          a.click(); // Simulate a click
+          document.body.removeChild(a); // Remove link from body
+          URL.revokeObjectURL(url); // Release the object URL resource
+
+          // Update the display to inform the user
+          jsPsych.getDisplayElement().innerHTML = `
+          <div class="centered" style="font-size: 24px;">
+            実験は終了しました。<br><br>
+            結果ファイル (${filename}) のダウンロードが開始されました。<br>
+            （ダウンロードフォルダを確認するか、保存場所を尋ねるダイアログに従ってください）<br><br>
+            ご協力ありがとうございました。
+          </div>`;
+          console.log("Download triggered for file:", filename);
+        },
+      });
+
+      // --- GitHub Code Removed ---
+
+      // --- Experiment Definition ---
+
+      const subject_id = {
+        type: jsPsychSurveyText,
+        questions: [
+          {
+            prompt: "被験者の名前またはIDを入力してください：",
+            name: "subject",
+            required: true,
+          },
+        ],
+        on_finish: (data) => {
+          let subj_id = "not_provided";
+          if (data.response && data.response.subject) {
+            subj_id = data.response.subject;
+          } else if (data.responses) {
+            // Fallback for older structure
+            try {
+              const responses = JSON.parse(data.responses);
+              subj_id = responses.subject;
+            } catch (e) {
+              console.error(
+                "Could not parse subject ID response:",
+                data.responses
+              );
+              subj_id = "parsing_error";
+            }
+          }
+          // Add subject ID property to all data collected from this point forward
+          jsPsych.data.addProperties({ subject: subj_id });
+        },
+      };
+
+      // Timestamping
+      let timestamps = {};
+      function log_event(label) {
+        timestamps[label] = Math.round(performance.now());
+      }
+
+      // Trial Creation Function
+      function createTrial(trial) {
+        const timeline = [];
+        timestamps = {}; // Reset for each trial
+
+        timeline.push({
+          type: jsPsychCallFunction,
+          func: () => log_event("trial_start"),
+        });
+
+        // Fixation cross
+        timeline.push({
+          type: jsPsychHtmlKeyboardResponse,
+          stimulus: '<div class="centered" style="font-size:48px;">+</div>',
+          choices: "NO_KEYS",
+          trial_duration: 1000,
+        });
+
+        // Present numbers
+        trial.numbers.forEach((num, index) => {
+          timeline.push({
+            type: jsPsychCallFunction,
+            func: () => log_event(`number_${index + 1}`),
+          });
+          timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: `<div class="centered" style="font-size:48px;">${num}</div>`,
+            choices: "NO_KEYS",
+            trial_duration: 1000,
+          });
+        });
+
+        // Prepare target
+        const target_symbol = trial.target === "maru" ? "◯" : "☆";
+        const position_style =
+          trial.position === "left"
+            ? "position:absolute; top:50%; left:20%; transform:translateY(-50%);"
+            : "position:absolute; top:50%; right:20%; transform:translateY(-50%);";
+        const target_html = `<div style="font-size:60px; ${position_style}">${target_symbol}</div>`;
+
+        // Log target onset
+        timeline.push({
+          type: jsPsychCallFunction,
+          func: () => log_event("target_onset"),
+        });
+
+        // Target presentation and response collection
+        timeline.push({
+          type: jsPsychHtmlKeyboardResponse,
+          stimulus: target_html,
+          trial_duration: 2000, // Max time to respond
+          response_ends_trial: true, // End trial on response
+          choices: [" "], // Spacebar only
+          on_finish: (data) => {
+            // Record trial details
+            const responded = data.response !== null;
+            const correct =
+              (trial.target === "maru" && responded) ||
+              (trial.target === "hoshi" && !responded);
+
+            data.numbers = trial.numbers.join("-");
+            data.position = trial.position;
+            data.target = trial.target;
+            data.correct = correct;
+            data.responded = responded;
+
+            // Add all logged timestamps for this trial
+            for (const key in timestamps) {
+              data[key + "_time"] = timestamps[key];
+            }
+            // Calculate response timestamp relative to start of experiment
+            if (data.rt !== null && timestamps["target_onset"] !== undefined) {
+              data.response_timestamp = Math.round(
+                timestamps["target_onset"] + data.rt
+              );
+            } else {
+              data.response_timestamp = null;
+            }
+            // Optional: remove jsPsych's default 'rt' if you only use response_timestamp
+            // delete data.rt;
+          },
+        });
+
+        return timeline;
+      }
+
+      // Practice Trials (Using only the first one as per your last code)
+      const practice_trials = [
+        { numbers: ["7", "5", "3"], position: "left", target: "hoshi" },
+        // { numbers: ["7", "5", "3"], position: "right", target: "maru" },
+        // { numbers: ["3", "5", "7"], position: "left", target: "maru" },
+        // { numbers: ["3", "5", "7"], position: "right", target: "hoshi" },
+      ];
+      const practice_timeline = practice_trials.flatMap(createTrial);
+
+      // Main Trials Logic
+      function isIncreasing(array) {
+        // Ensure numbers are compared numerically
+        return array.every(
+          (val, i, arr) => i === 0 || Number(arr[i - 1]) < Number(val)
+        );
+      }
+      function isDecreasing(array) {
+        // Ensure numbers are compared numerically
+        return array.every(
+          (val, i, arr) => i === 0 || Number(arr[i - 1]) > Number(val)
+        );
+      }
+
+      // Using only the first two candidate trials as per your last code
+      const candidate_trials = [
+        // Left ◯, Right ☆ (Increasing)
+        { numbers: ["5", "13", "21"], position: "left", target: "hoshi" },
+        { numbers: ["5", "13", "21"], position: "right", target: "hoshi" },
+        // ... rest of trials commented out in your version ...
+      ];
+
+      // Filter candidate trials (will only include the first two based on above)
+      const increasing_trials = candidate_trials.filter(
+        (t) => isIncreasing(t.numbers) // No need for map(Number) here if functions handle it
+      );
+      const decreasing_trials = candidate_trials.filter(
+        (t) => isDecreasing(t.numbers) // No need for map(Number) here if functions handle it
+      );
+
+      // Shuffle the selected trials
+      const main_trials = jsPsych.randomization.shuffle(
+        increasing_trials.concat(decreasing_trials)
+      );
+      const main_timeline_nodes = main_trials.flatMap(createTrial);
+
+      // --- Experiment Timeline ---
+      jsPsych.run([
+        subject_id, // Ask for subject ID first
+        {
+          // Practice instructions
+          type: jsPsychHtmlKeyboardResponse,
+          stimulus: `<div class="centered" style="font-size: 24px;">練習パートを始めます。<br><br><strong>◯ のときはスペースキーを押し、☆ のときは押さないでください。</strong><br><br>準備ができたらスペースキーを押してスタートしてください。</div>`,
+          choices: [" "],
+        },
+        ...practice_timeline, // Run practice trials
+        {
+          // Main experiment instructions
+          type: jsPsychHtmlKeyboardResponse,
+          stimulus: `<div class="centered" style="font-size: 24px;">練習は終わりです。<br><br>本実験を始めます。<br><br><strong>◯ のときはスペースキーを押し、☆ のときは押さないでください。</strong><br><br>準備ができたらスペースキーを押してスタートしてください。</div>`,
+          choices: [" "],
+        },
+        ...main_timeline_nodes, // Run main trials
+        // Optional: Brief message before on_finish takes over display
+        {
+          type: jsPsychHtmlKeyboardResponse,
+          stimulus: `<div class="centered" style="font-size: 24px;">実験は終了しました。<br><br>結果を処理しています...</div>`,
+          choices: "NO_KEYS", // Prevent user interaction
+          trial_duration: 500, // Show briefly
+        },
+        // The final message is now handled by the on_finish callback after the download starts
+      ]);
+    </script>
+  </body>
+</html>
