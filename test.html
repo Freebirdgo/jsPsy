@@ -39,47 +39,59 @@
   </head>
   <body>
     <script>
-      // Initialize jsPsych - Note: The on_finish here will be overwritten later
+      // Initialize jsPsych - on_finish here is minimal, main logic is below
       const jsPsych = initJsPsych();
 
       // --- GitHub Upload Configuration ---
-      // !!! SECURITY WARNING !!!
-      // Hardcoding your PAT token here is VERY DANGEROUS.
-      // Anyone viewing the page source can steal it.
-      // Consider using a server-side script or a dedicated service (like JATOS, Pavlovia, or your own backend)
-      // to handle data saving securely. For testing purposes only.
-      const GITHUB_TOKEN = "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"; // <-- PASTE YOUR PAT HERE (USE WITH EXTREME CAUTION)
-      const REPO_OWNER = "Freebirdgo";
-      const REPO_NAME = "jsPsy";
-      // !!! DATA OVERWRITING WARNING !!!
-      // This file path will be OVERWRITTEN by each participant.
-      // Consider making the filename unique per participant (e.g., using subject ID and timestamp).
-      const FILE_PATH = "data/jspsych_results.csv"; // Path within your repository
+      // !!! SECURITY WARNING !!! VERY DANGEROUS TO HARDCODE TOKEN HERE !!!
+      // Consider using a server-side script or a dedicated service for secure data handling.
+      const GITHUB_TOKEN = "ghp_YOUR_TOKEN_HERE"; // <-- PASTE YOUR PAT TOKEN (USE WITH EXTREME CAUTION!)
+      const REPO_OWNER = "kei-account"; // <-- Your GitHub username or organization
+      const REPO_NAME = "experiment"; // <-- Your repository name
+      // !!! DATA OVERWRITING WARNING !!! Each participant overwrites the previous one!
+      // Consider using unique filenames (see options in uploadToGitHub function).
+      const DEFAULT_FILE_PATH = "data/jspsych_results.csv"; // Default path within your repository
 
       // --- GitHub Upload Function ---
       function uploadToGitHub(csvData, subjectId) {
-        // Option 1: Overwrite the file every time (simple, but loses previous data)
-        const filePath = FILE_PATH;
+        console.log(`Preparing upload for subject: ${subjectId}`);
 
-        // Option 2: Create a unique filename (better for multiple participants)
+        // --- Choose Filename Strategy ---
+        // Option 1: Fixed filename (overwrites previous data)
+        let filePath = DEFAULT_FILE_PATH;
+        let commitMessage = `Add jsPsych result for subject ${
+          subjectId || "unknown"
+        } at ${new Date().toISOString()}`;
+
+        // Option 2: Unique filename (Recommended for multiple participants)
         // const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        // const uniqueFileName = `jspsych_results_${subjectId}_${timestamp}.csv`;
-        // const filePath = `data/${uniqueFileName}`; // Assumes a 'data' folder exists
+        // const safeSubjectId = (subjectId || 'unknown_subject').replace(/[^a-zA-Z0-9_-]/g, '_'); // Sanitize ID for filename
+        // const uniqueFileName = `jspsych_results_${safeSubjectId}_${timestamp}.csv`;
+        // filePath = `data/${uniqueFileName}`; // Assumes a 'data' folder exists
+        // commitMessage = `Add jsPsych result for subject ${safeSubjectId}`;
+        // console.log(`Using unique file path: ${filePath}`);
+        // --- End Choose Filename Strategy ---
 
         const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${filePath}`;
 
-        // Base64 encode the CSV data
-        // Use btoa(unescape(encodeURIComponent(csvData))) for proper handling of UTF-8 characters if needed
-        const encodedContent = btoa(csvData);
+        // Base64 encode the CSV data (handle potential UTF-8 characters)
+        const encodedContent = btoa(unescape(encodeURIComponent(csvData)));
 
         // Prepare the payload for the GitHub API
         const payload = {
-          message: `Add jsPsych result for subject ${subjectId || "unknown"}`, // Add subject ID to commit message
+          message: commitMessage,
           content: encodedContent,
-          // To update an existing file instead of always overwriting, you'd first need to
-          // GET the file to retrieve its 'sha', then include it in the payload:
-          // sha: fileSha // (obtained from a previous GET request)
+          // branch: 'main' // Optional: specify branch if not default
+          // To update an existing file reliably, you'd need its SHA hash first.
+          // This basic PUT overwrites or creates.
         };
+
+        // Display "uploading" message to the user
+        jsPsych.getDisplayElement().innerHTML = `
+    <div class="centered" style="font-size: 24px;">
+      実験は終了しました。<br><br>
+      結果をGitHubにアップロードしています...しばらくお待ちください。
+    </div>`;
 
         fetch(url, {
           method: "PUT", // Creates or overwrites the file
@@ -92,7 +104,7 @@
         })
           .then((response) => {
             if (!response.ok) {
-              // If response is not OK, throw an error to be caught by .catch
+              // If response not OK, read error message from GitHub and throw
               return response.json().then((err) => {
                 throw new Error(
                   `GitHub API Error: ${response.status} ${
@@ -101,51 +113,58 @@
                 );
               });
             }
-            return response.json();
+            return response.json(); // Success
           })
           .then((data) => {
             console.log("✅ GitHub Upload Successful:", data);
-            // Optionally inform the user, but avoid popups if possible for better UX
-            // alert("Results uploaded to GitHub!");
-            // Instead, you might update the content of the final page.
-            document.body.innerHTML = `<div class="centered" style="font-size: 24px;">実験は終了しました。ご協力ありがとうございました。<br>データは正常に保存されました。</div>`;
+            // Update page content on success
+            jsPsych.getDisplayElement().innerHTML = `
+      <div class="centered" style="font-size: 24px;">
+        実験は終了しました。<br><br>
+        結果は正常にGitHubにアップロードされました。<br><br>
+        ご協力ありがとうございました。
+      </div>`;
           })
           .catch((error) => {
             console.error("❌ GitHub Upload Failed:", error);
-            // Inform the user about the failure
-            // alert("Error uploading results. Please contact the researcher.");
-            document.body.innerHTML = `<div class="centered" style="font-size: 24px; color: red;">エラーが発生しました。<br>結果をGitHubにアップロードできませんでした。<br>研究者に連絡してください。<br><br><pre>${error.message}</pre></div>`;
-            // As a fallback, you could trigger the download here
+            // Update page content on failure, show error
+            jsPsych.getDisplayElement().innerHTML = `
+      <div class="centered" style="font-size: 24px; color: red;">
+        エラーが発生しました。<br><br>
+        結果をGitHubにアップロードできませんでした。<br><br>
+        研究者に連絡してください。<br><br>
+        <pre style="font-size: 12px; text-align: left; background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc; white-space: pre-wrap;">${error.message}</pre>
+      </div>`;
+            // Optionally, trigger a local download as a fallback
             // downloadCSV(csvData, `fallback_results_${subjectId}.csv`);
           });
       }
 
       // --- Helper function for fallback download (optional) ---
-      function downloadCSV(csvData, filename) {
-        const blob = new Blob([csvData], { type: "text/csv;charset=utf-8;" });
-        const link = document.createElement("a");
-        if (link.download !== undefined) {
-          // Feature detection
-          const url = URL.createObjectURL(blob);
-          link.setAttribute("href", url);
-          link.setAttribute("download", filename);
-          link.style.visibility = "hidden";
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        }
-      }
+      /*
+function downloadCSV(csvData, filename) {
+    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url); // Free up memory
+    console.log("Fallback download triggered.");
+}
+*/
 
-      // --- Overwrite on_finish to use GitHub Upload ---
+      // --- Set jsPsych.on_finish to call the GitHub upload function ---
       jsPsych.on_finish = () => {
         const results = jsPsych.data.get();
         const csv = results.csv();
+        // Get subject ID from data, provide default if not found
         const subjectId =
-          results.select("subject").values[0] || "unknown_subject"; // Get subject ID from data
-        console.log(
-          "Experiment finished. Preparing to upload data for subject:",
-          subjectId
-        );
+          results.select("subject").values[0] || "unknown_subject";
+        console.log("Experiment finished. Preparing data for GitHub upload.");
         uploadToGitHub(csv, subjectId); // Call the upload function
       };
 
@@ -155,30 +174,29 @@
         type: jsPsychSurveyText,
         questions: [
           {
-            prompt: "被験者の名前またはIDを入力してください：", // Changed prompt slightly
+            prompt: "被験者の名前またはIDを入力してください：",
             name: "subject",
             required: true,
           },
         ],
         on_finish: (data) => {
-          // This way of adding properties is safer
+          let subj_id = "not_provided";
           if (data.response && data.response.subject) {
-            jsPsych.data.addProperties({ subject: data.response.subject });
+            subj_id = data.response.subject;
           } else if (data.responses) {
-            // Fallback for older jsPsych or different response structure
             try {
               const responses = JSON.parse(data.responses);
-              jsPsych.data.addProperties({ subject: responses.subject });
+              subj_id = responses.subject;
             } catch (e) {
               console.error(
                 "Could not parse subject ID response:",
                 data.responses
               );
-              jsPsych.data.addProperties({ subject: "parsing_error" });
+              subj_id = "parsing_error";
             }
-          } else {
-            jsPsych.data.addProperties({ subject: "not_provided" });
           }
+          // Add subject ID property to all data collected from this point forward
+          jsPsych.data.addProperties({ subject: subj_id });
         },
       };
 
@@ -188,7 +206,7 @@
         timestamps[label] = Math.round(performance.now());
       }
 
-      // Trial Creation Function (Unchanged from your code)
+      // Trial Creation Function (Unchanged)
       function createTrial(trial) {
         const timeline = [];
         timestamps = {}; // Reset for each trial
@@ -242,29 +260,22 @@
               (trial.target === "maru" && responded) ||
               (trial.target === "hoshi" && !responded);
 
-            // Add trial-specific data
             data.numbers = trial.numbers.join("-");
             data.position = trial.position;
             data.target = trial.target;
             data.correct = correct;
             data.responded = responded;
 
-            // Add timestamp data
             for (const key in timestamps) {
               data[key + "_time"] = timestamps[key];
             }
-            // Calculate response time relative to trial_start (or target_onset if preferred)
             if (data.rt !== null && timestamps["target_onset"] !== undefined) {
-              // data.response_time_from_target = Math.round(data.rt); // jsPsych rt is relative to stimulus onset
               data.response_timestamp = Math.round(
                 timestamps["target_onset"] + data.rt
-              ); // Absolute timestamp of response
+              );
             } else {
-              // data.response_time_from_target = null;
               data.response_timestamp = null;
             }
-            // Clean up rt from jsPsych default data if needed, as we added custom timing
-            // delete data.rt;
           },
         });
 
@@ -274,13 +285,13 @@
       // Practice Trials (Unchanged)
       const practice_trials = [
         { numbers: ["7", "5", "3"], position: "left", target: "hoshi" },
-        // { numbers: ["7", "5", "3"], position: "right", target: "maru" },
-        // { numbers: ["3", "5", "7"], position: "left", target: "maru" },
-        // { numbers: ["3", "5", "7"], position: "right", target: "hoshi" },
+        { numbers: ["7", "5", "3"], position: "right", target: "maru" },
+        { numbers: ["3", "5", "7"], position: "left", target: "maru" },
+        { numbers: ["3", "5", "7"], position: "right", target: "hoshi" },
       ];
       const practice_timeline = practice_trials.flatMap(createTrial);
 
-      // Main Trials (Unchanged logic, just using the functions)
+      // Main Trials Logic (Unchanged)
       function isIncreasing(array) {
         return array.every((val, i, arr) => i === 0 || arr[i - 1] < val);
       }
@@ -291,44 +302,44 @@
         // Left ◯, Right ☆ (Increasing)
         { numbers: ["5", "13", "21"], position: "left", target: "hoshi" },
         { numbers: ["5", "13", "21"], position: "right", target: "hoshi" },
-        // { numbers: ["5", "13", "21"], position: "left", target: "maru" },
-        // { numbers: ["5", "13", "21"], position: "right", target: "maru" },
-        // { numbers: ["5", "14", "23"], position: "left", target: "hoshi" },
-        // { numbers: ["5", "14", "23"], position: "right", target: "hoshi" },
-        // { numbers: ["5", "14", "23"], position: "left", target: "maru" },
-        // { numbers: ["5", "14", "23"], position: "right", target: "maru" },
-        // { numbers: ["5", "15", "25"], position: "left", target: "hoshi" },
-        // { numbers: ["5", "15", "25"], position: "right", target: "hoshi" },
-        // { numbers: ["5", "15", "25"], position: "left", target: "maru" },
-        // { numbers: ["5", "15", "25"], position: "right", target: "maru" },
-        // { numbers: ["5", "16", "27"], position: "left", target: "hoshi" },
-        // { numbers: ["5", "16", "27"], position: "right", target: "hoshi" },
-        // { numbers: ["5", "16", "27"], position: "right", target: "maru" },
-        // { numbers: ["5", "16", "27"], position: "left", target: "maru" },
-        // { numbers: ["5", "17", "29"], position: "left", target: "hoshi" },
-        // { numbers: ["5", "17", "29"], position: "right", target: "hoshi" },
-        // { numbers: ["5", "17", "29"], position: "right", target: "maru" },
-        // { numbers: ["5", "17", "29"], position: "left", target: "maru" }, // Left ☆, Right ◯ (Decreasing)
-        // { numbers: ["25", "13", "1"], position: "left", target: "hoshi" },
-        // { numbers: ["25", "13", "1"], position: "right", target: "hoshi" },
-        // { numbers: ["25", "13", "1"], position: "left", target: "maru" },
-        // { numbers: ["25", "13", "1"], position: "right", target: "maru" },
-        // { numbers: ["25", "14", "3"], position: "left", target: "hoshi" },
-        // { numbers: ["25", "14", "3"], position: "right", target: "hoshi" },
-        // { numbers: ["25", "14", "3"], position: "left", target: "maru" },
-        // { numbers: ["25", "14", "3"], position: "right", target: "maru" },
-        // { numbers: ["25", "15", "5"], position: "left", target: "hoshi" },
-        // { numbers: ["25", "15", "5"], position: "right", target: "hoshi" },
-        // { numbers: ["25", "15", "5"], position: "left", target: "maru" },
-        // { numbers: ["25", "15", "5"], position: "right", target: "maru" },
-        // { numbers: ["25", "16", "7"], position: "left", target: "hoshi" },
-        // { numbers: ["25", "16", "7"], position: "right", target: "hoshi" },
-        // { numbers: ["25", "16", "7"], position: "right", target: "maru" },
-        // { numbers: ["25", "16", "7"], position: "left", target: "maru" },
-        // { numbers: ["25", "17", "9"], position: "left", target: "hoshi" },
-        // { numbers: ["25", "17", "9"], position: "right", target: "hoshi" },
-        // { numbers: ["25", "17", "9"], position: "right", target: "maru" },
-        // { numbers: ["25", "17", "9"], position: "left", target: "maru" },
+        { numbers: ["5", "13", "21"], position: "left", target: "maru" },
+        { numbers: ["5", "13", "21"], position: "right", target: "maru" },
+        { numbers: ["5", "14", "23"], position: "left", target: "hoshi" },
+        { numbers: ["5", "14", "23"], position: "right", target: "hoshi" },
+        { numbers: ["5", "14", "23"], position: "left", target: "maru" },
+        { numbers: ["5", "14", "23"], position: "right", target: "maru" },
+        { numbers: ["5", "15", "25"], position: "left", target: "hoshi" },
+        { numbers: ["5", "15", "25"], position: "right", target: "hoshi" },
+        { numbers: ["5", "15", "25"], position: "left", target: "maru" },
+        { numbers: ["5", "15", "25"], position: "right", target: "maru" },
+        { numbers: ["5", "16", "27"], position: "left", target: "hoshi" },
+        { numbers: ["5", "16", "27"], position: "right", target: "hoshi" },
+        { numbers: ["5", "16", "27"], position: "right", target: "maru" },
+        { numbers: ["5", "16", "27"], position: "left", target: "maru" },
+        { numbers: ["5", "17", "29"], position: "left", target: "hoshi" },
+        { numbers: ["5", "17", "29"], position: "right", target: "hoshi" },
+        { numbers: ["5", "17", "29"], position: "right", target: "maru" },
+        { numbers: ["5", "17", "29"], position: "left", target: "maru" }, // Left ☆, Right ◯ (Decreasing)
+        { numbers: ["25", "13", "1"], position: "left", target: "hoshi" },
+        { numbers: ["25", "13", "1"], position: "right", target: "hoshi" },
+        { numbers: ["25", "13", "1"], position: "left", target: "maru" },
+        { numbers: ["25", "13", "1"], position: "right", target: "maru" },
+        { numbers: ["25", "14", "3"], position: "left", target: "hoshi" },
+        { numbers: ["25", "14", "3"], position: "right", target: "hoshi" },
+        { numbers: ["25", "14", "3"], position: "left", target: "maru" },
+        { numbers: ["25", "14", "3"], position: "right", target: "maru" },
+        { numbers: ["25", "15", "5"], position: "left", target: "hoshi" },
+        { numbers: ["25", "15", "5"], position: "right", target: "hoshi" },
+        { numbers: ["25", "15", "5"], position: "left", target: "maru" },
+        { numbers: ["25", "15", "5"], position: "right", target: "maru" },
+        { numbers: ["25", "16", "7"], position: "left", target: "hoshi" },
+        { numbers: ["25", "16", "7"], position: "right", target: "hoshi" },
+        { numbers: ["25", "16", "7"], position: "right", target: "maru" },
+        { numbers: ["25", "16", "7"], position: "left", target: "maru" },
+        { numbers: ["25", "17", "9"], position: "left", target: "hoshi" },
+        { numbers: ["25", "17", "9"], position: "right", target: "hoshi" },
+        { numbers: ["25", "17", "9"], position: "right", target: "maru" },
+        { numbers: ["25", "17", "9"], position: "left", target: "maru" },
       ];
       const increasing_trials = candidate_trials.filter((t) =>
         isIncreasing(t.numbers.map(Number))
@@ -339,49 +350,25 @@
       const main_trials = jsPsych.randomization.shuffle(
         increasing_trials.concat(decreasing_trials)
       );
-      const main_timeline_nodes = main_trials.flatMap(createTrial); // Renamed to avoid conflict
+      const main_timeline_nodes = main_trials.flatMap(createTrial);
 
-      // --- Experiment Timeline ---
+      // --- Experiment Timeline (Corrected Order) ---
       jsPsych.run([
-        subject_id, // Ask for subject ID first
+        subject_id,
         {
           type: jsPsychHtmlKeyboardResponse,
-          stimulus: `
-      <div class="centered" style="font-size: 24px;">
-        練習パートを始めます。<br><br>
-        <strong>◯ のときはスペースキーを押し、☆ のときは押さないでください。</strong><br><br>
-        準備ができたらスペースキーを押してスタートしてください。
-      </div>
-    `,
+          stimulus: `<div class="centered" style="font-size: 24px;">練習パートを始めます。<br><br><strong>◯ のときはスペースキーを押し、☆ のときは押さないでください。</strong><br><br>準備ができたらスペースキーを押してスタートしてください。</div>`,
           choices: [" "],
         },
-        ...practice_timeline, // Run practice trials
+        ...practice_timeline,
         {
           type: jsPsychHtmlKeyboardResponse,
-          stimulus: `
-      <div class="centered" style="font-size: 24px;">
-        練習は終わりです。<br><br>
-        本実験を始めます。<br><br>
-        <strong>◯ のときはスペースキーを押し、☆ のときは押さないでください。</strong><br><br>
-        準備ができたらスペースキーを押してスタートしてください。
-      </div>
-    `,
+          stimulus: `<div class="centered" style="font-size: 24px;">練習は終わりです。<br><br>本実験を始めます。<br><br><strong>◯ のときはスペースキーを押し、☆ のときは押さないでください。</strong><br><br>準備ができたらスペースキーを押してスタートしてください。</div>`,
           choices: [" "],
         },
-        ...main_timeline_nodes, // *** Run MAIN trials HERE ***
-        {
-          type: jsPsychHtmlKeyboardResponse, // Use keyboard response or button response
-          stimulus: `
-      <div class="centered" style="font-size: 24px;">
-        実験は終了しました。<br><br>
-        結果を保存しています...しばらくお待ちください。<br><br>
-        （このメッセージが長時間表示されたままの場合は、研究者に連絡してください）
-      </div>
-    `,
-          choices: "NO_KEYS", // Don't allow dismissal until upload finishes/fails
-          trial_duration: null, // Wait indefinitely (upload function will change the body content)
-        },
-        // The jsPsych.on_finish function handles the upload AFTER this timeline completes
+        ...main_timeline_nodes, // Run main trials
+        // The final message is handled by the on_finish -> uploadToGitHub function
+        // This node is technically not needed as on_finish takes over display
       ]);
     </script>
   </body>
